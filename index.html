@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crealaxian - simple js game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background: url('assets/img/cc-game-bg.jpg');
+            background-position: center center;
+            background-size: cover;
+        }
+        #game {
+            text-align: center;
+        }
+        #game>canvas {
+            border: 1px solid #fff;
+        }
+    </style>
+</head>
+<body>
+    <div id="game"></div>
+    <script src="dist/game.js"></script>
+    <script>
+        const Crealaxian = new CrealaxianGame('game', {
+            width: 480,
+            height: 320
+        })
+    </script>
+</body>
+</html>
