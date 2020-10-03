@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crealaxian - simple js game</title>
     <style>
+        @font-face {
+            font-family: '8bit';
+            src: url('assets/fonts/PressStart2P.ttf');
+        }
         * {
             margin: 0;
             padding: 0;
@@ -15,12 +19,93 @@
             background-size: cover;
             width: 100%;
             min-height: 100vh;
+            text-align: center;
         }
         #game {
             text-align: center;
+            font-family: "8bit";
+            position: relative;
+            display: inline-block;
+            outline: 0;
         }
-        #game>canvas {
-            border: 1px solid #fff;
+        #game > canvas {
+            box-shadow: 0px 0px 30px 0px rgba(255, 255, 255, 0.5);
+        }
+        #game > start_button {
+            width: 128px;
+            height: 64px;
+            border: 3px solid #6c962a;
+            color: #d1ff00;
+            cursor: pointer;
+            position: absolute;
+            bottom: 50px;
+            left: calc(50% - 67px);
+            background: transparent;
+            line-height: 64px;
+            text-align: center;
+            font-size: 16px;
+        }
+        #game > start_button:hover {
+            background: #6c962a;
+            border-color: #d1ff00;
+            color: #fff;
+        }
+        #game > gameover {
+            color: #ffffff;
+            position: absolute;
+            top: calc(50% - 28px);
+            left: calc(50% - 250px);
+            text-align: center;
+            font-size: 56px;
+        }
+        #game > restart_button {
+            width: 172px;
+            height: 64px;
+            border: 3px solid #c05f62;
+            color: #ca8888;
+            cursor: pointer;
+            position: absolute;
+            bottom: 50px;
+            left: calc(50% - 86px);
+            background: transparent;
+            line-height: 64px;
+            text-align: center;
+            font-size: 16px;
+        }
+        #game > restart_button:hover {
+            background: #c05f62;
+            border-color: #ca8888;
+            color: #fff;
+        }
+        lives {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+        }
+        lives span {
+            display: inline-block;
+            width: 12px;
+            height: 16px;
+            margin-right: 6px;
+            background: transparent url('assets/img/sprites2.png') no-repeat 0 -93px;
+        }
+        score {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 165px;
+            padding-top: 20px;
+            color: #fff;
+            text-align: right;
+            font-size: 16px;
+        }
+        score:before {
+            position: absolute;
+            top: 0;
+            right: 0;
+            content: 'YOUR SCORE';
+            color: #6c962a;
         }
     </style>
 </head>
@@ -32,7 +117,7 @@
     <script>
         var Crealaxian = new CrealaxianGame('game', {
             width: 640,
-            height: 320
+            height: 480
         })
     </script>
 </body>
