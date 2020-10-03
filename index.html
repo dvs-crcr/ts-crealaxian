@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+    <meta name="viewport" content="width=640">
     <title>Crealaxian - simple js game</title>
     <style>
         @font-face {
@@ -20,6 +21,8 @@
             width: 100%;
             min-height: 100vh;
             text-align: center;
+            padding: 50px;
+            box-sizing: border-box;
         }
         #game {
             text-align: center;
@@ -29,7 +32,7 @@
             outline: 0;
         }
         #game > canvas {
-            box-shadow: 0px 0px 30px 0px rgba(255, 255, 255, 0.5);
+            /* box-shadow: 0px 0px 30px 0px rgba(255, 255, 255, 0.5); */
         }
         #game > start_button {
             width: 128px;
@@ -70,7 +73,7 @@
             background: transparent;
             line-height: 64px;
             text-align: center;
-            font-size: 16px;
+            font-size: 16
         }
         #game > restart_button:hover {
             background: #c05f62;
