@@ -25,25 +25,12 @@ type BodySkin = {
     frameNumber: number
     frames: [number, number][]
 }
-interface BodiesParams {
-    size: BodyDimensions
-    position?: BodyPosition
-    skin: BodySkin
-}
-interface PlayerParams extends BodiesParams {
-    update: () => void
-}
-interface EnemyParams extends BodiesParams {
 
-}
-interface BulletParams extends BodiesParams {
-    playerBullet: boolean
-    update: () => void
-}
 type Bodies = {
-    player?: PlayerParams
-    enemies?: EnemyParams[]
-    bullets?: BulletParams[]
+    player?: Player
+    enemies?: Enemy[]
+    bullets?: Bullet[]
+    explosions?: Explosion[]
 }
 type ShootFX = {
     canShoot?: boolean
@@ -56,9 +43,9 @@ type EnemyType = {
     height: number
     speedX: number
     frames: [number, number][]
-    shootFx?: ShootFX
+    lives: number
+    shootFx: ShootFX
 }
-
 
 /** Игра */
 class CrealaxianGame {
@@ -73,7 +60,9 @@ class CrealaxianGame {
 
     constructor(public id: string, public params: GameParams) {
         this.bodies = {
-            bullets: []
+            explosions: [],
+            bullets: [],
+            enemies: []
         }
         this.container = document.getElementById(id)
         let canvas = document.createElement('canvas')
@@ -113,20 +102,69 @@ class CrealaxianGame {
     }
     /** Создание врагов на основе матрицы уровней */
     createEnemies(level: number[][]) {
-        console.log(level);
-        console.log(this.enemies.types[1]);
+        // Отступы от элементов
+        let marginXY = [8, 4]
+        // Длина спрайта врага
+        let defaultLength = this.enemies.maxWidth + marginXY[1]
+        // Вычисляем максимальную высоту для каждого ряда
+        let maxEnemyRowHeight = level.map(enemyTypeRow => {
+            return Math.max(...enemyTypeRow.map(enemyType => (enemyType !== 0 ? this.enemies.types[enemyType.toFixed()].height : 0)))
+        })
+        // Максимальное количество врагов в ряду
+        let maxEnemiesInRow = Math.max(...level.map(i => (i.length)))
+        // Длина врагов 
+        let enemiesLength = defaultLength * maxEnemiesInRow
+        let startY = 10
+        if (enemiesLength > this.params.width) {
+            console.warn('Game width must be more than '+enemiesLength);
+        }
+        for (let row = 0; row < level.length; row++) {
+            // Смещение рядов по вертикали
+            startY += (row === 0 ? 0 : maxEnemyRowHeight[row] + marginXY[0])
+            // Расчет началной координаты
+            let startX = (this.params.width - enemiesLength ) / 2
+            for (let el = 0; el < level[row].length; el++) {
+                let type = level[row][el].toFixed();
+                if (type !== '0') {
+                    this.bodies.enemies?.push(this.createEnemy([row, el], this.enemies.types[type], {
+                        x: startX,
+                        y: startY
+                    }, defaultLength))
+                }
+                startX += defaultLength
+            }
+        }
     }
     /** Создание врага */
-    createEnemy(body: Player, playerBullet: boolean = false): void {
-        
-    }
-    /** Создание пули */
-    createBullet(body: Player, playerBullet: boolean = false): void {
-        this.bodies.bullets?.push(new Bullet(this, body, {
+    createEnemy(matrix: [number, number], enemyType: EnemyType, position: BodyPosition, defaultLength: number) {
+        return new Enemy(matrix, this, {
             src: this.sprite!,
             frameNumber: 0,
-            frames: [[0,49],[4,49]]
-        }, playerBullet))
+            frames: enemyType.frames
+        }, {
+            width: enemyType.width,
+            height: enemyType.height
+        }, position, enemyType.speedX, defaultLength, enemyType.shootFx.canShoot,
+        enemyType.shootFx.velocity, enemyType.shootFx.speed, enemyType.shootFx.angle)
+    }
+    /** Получение крайних координат */
+    getExtremes(): [number, number] {
+        let xArray = this.bodies.enemies?.map(i => i.position.x)
+        return [Math.min(...xArray!), Math.max(...xArray!)]
+    }
+    /** Проверка есть ли под врагом еще один */
+    enemiesBelow(enemy: Enemy) {
+        return this.bodies.enemies!.filter((b) => {
+            return b.matrix[0] > enemy.matrix[0] && b.matrix[1] == enemy.matrix[1]
+        }).length > 0;
+    }
+    /** Создание пули */
+    createBullet(body: Player | Enemy, playerBullet: boolean = false, frameNumber: number = 0, angle: number): void {
+        this.bodies.bullets?.push(new Bullet(this, body, {
+            src: this.sprite!,
+            frameNumber: frameNumber,
+            frames: [[0,49],[4,49],[8,49]]
+        }, playerBullet, undefined, undefined, angle))
     }
     /** Запуск игры после загрузки ресурсов */
     start(): void {
@@ -141,14 +179,71 @@ class CrealaxianGame {
     }
     /** Обновление элементов */
     update(): void {
-        this.bodies.player!.update()
+        this.colliding()
+        this.bodies.player?.update()
         this.bodies.bullets?.forEach((bullet, index) => {
             bullet.update()
             this.deleteExternalBullet(bullet, index)
         })
+        this.bodies.enemies?.forEach((enemy) => {
+            enemy.update()
+        })
+        this.bodies.explosions?.forEach((explode, index) => {
+            explode.update(index)
+        })
+    }
+    /** Обработка коллизий */
+    colliding(): void {
+        // Столкновение пуль с врагами и игроком
+        this.bodies.enemies = this.bodies.enemies?.filter((enemy) => {
+            let enemyAlive = true
+            this.bodies.bullets = this.bodies.bullets?.filter((bullet) => {
+                // Если пуля игрока врезалась во врага
+                if (bullet.playerBullet === true &&
+                    enemy.position.x < bullet.position.x + bullet.size.width &&
+                    enemy.position.x + enemy.size.width  > bullet.position.x &&
+					enemy.position.y < bullet.position.y + bullet.size.height && 
+					enemy.position.y + enemy.size.height > bullet.position.y) {
+                    enemy.hit()
+                    enemyAlive = false
+                    return false
+                }
+                // Если пуля врага врезалась в игрока
+                if (this.bodies.player) {
+                    let player = this.bodies.player
+                    if (bullet.playerBullet === false &&
+                        player.position.x < bullet.position.x + bullet.size.width  && 
+                        player.position.x + player.size.width  > bullet.position.x &&
+                        player.position.y < bullet.position.y + bullet.size.height && 
+                        player.position.y + player.size.height > bullet.position.y) {
+                        player.hit()
+                        return false
+                    }
+                }
+                return true
+            })
+            return enemyAlive
+        })
+        // Столкновение пуль
+        this.bodies.bullets = this.bodies.bullets?.filter((b1) => {
+            let bulletAlive = true
+            this.bodies.bullets?.forEach((b2) => {
+                if ((b1.playerBullet === true || b2.playerBullet === true) &&
+                    ((b1.playerBullet === true && b2.playerBullet === false) ||
+                    (b1.playerBullet === false && b2.playerBullet === true)) &&
+                    (b1.position.x < b2.position.x + b2.size.width  && 
+					b1.position.x + b1.size.width  > b2.position.x &&
+					b1.position.y < b2.position.y + b2.size.height && 
+					b1.position.y + b1.size.height > b2.position.y)) {
+                    b1.hit()
+                    bulletAlive = false
+                }
+            })
+            return bulletAlive
+        });
     }
     /** Проверка нахождения пули в пределах холста */
-    deleteExternalBullet(bullet: BulletParams, index: number): void {
+    deleteExternalBullet(bullet: Bullet, index: number): void {
         if (bullet.position!.y < 0 || bullet.position!.y > this.params.height) {
             this.bodies.bullets?.splice(index, 1)
         }
@@ -159,9 +254,17 @@ class CrealaxianGame {
     /** Отрисовка элементов */
     draw(): void {
         this.screen?.clearRect(0, 0, this.params.width, this.params.height)
-        this.renderBody(this.bodies.player!)
+        if (this.bodies.player) {
+            this.renderBody(this.bodies.player)
+        }
         this.bodies.bullets?.forEach((bullet) => {
             this.renderBody(bullet)
+        })
+        this.bodies.enemies?.forEach((enemy) => {
+            this.renderBody(enemy)
+        })
+        this.bodies.explosions?.forEach((explode) => {
+            this.renderBody(explode)
         })
     }
     /** Цикл, обновляющий canvas N раз в секунду*/
@@ -174,62 +277,75 @@ class CrealaxianGame {
         }, 1000 / fps);
     }
     /** Рендеринг объекта */
-    renderBody(body: PlayerParams | EnemyParams | BulletParams): void {
+    renderBody(body: Player | Enemy | Bullet | Explosion): void {
+        this.screen!.globalAlpha = body.alpha
         this.screen?.drawImage(body.skin.src, ...body.skin.frames[body.skin.frameNumber], 
             body.size.width, body.size.height, body.position?.x!, body.position?.y!, 
             body.size.width, body.size.height);
+        this.screen!.globalAlpha = 1
+    }
+    /** Получение рандомного числа в диапазоне */
+    getRandomInt = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min;
+    /** Конец */
+    over() {
+        this.resources.play('gameOver')
     }
 }
 
 /** Враги */
 class Enemies {
-    types: {[key: number]: EnemyType}
+    types: {[key: string]: EnemyType}
     constructor() {
         this.types = {
-            1: {
+            '1': {
                 width: 26,
                 height: 17,
                 speedX: 0.5,
-                frames: [[0,32], [26,32], [52,32], [26,32], [0,32]],
+                frames: [[0,32], [26,32], [52,32], [26,32]],
+                lives: 1,
                 shootFx: {
 
                 }
             },
-            2: {
+            '2': {
                 width: 26,
                 height: 17,
                 speedX: 0.5,
-                frames: [[78,32], [104,32], [130,32], [104,32], [78,32]],
+                frames: [[78,32], [104,32], [130,32], [104,32]],
+                lives: 1,
                 shootFx: {
                     velocity: 2,
                     speed: 0.007
                 }
             },
-            3: {
+            '3': {
                 width: 26,
                 height: 17,
                 speedX: 0.5,
-                frames: [[156,32], [182,32], [208,32], [182,32], [156,32]],
+                frames: [[156,32], [182,32], [208,32], [182,32]],
+                lives: 1,
                 shootFx: {
                     velocity: 3,
                     speed: 0.008
                 }
             },
-            4: {
+            '4': {
                 width: 22,
                 height: 25,
                 speedX: 0.5,
                 frames: [[234,32]],
+                lives: 1,
                 shootFx: {
                     velocity: 6,
                     speed: 0.02
                 }
             },
-            5: {
+            '5': {
                 width: 20,
                 height: 26,
                 speedX: 0.5,
                 frames: [[256,32]],
+                lives: 1,
                 shootFx: {
                     velocity: 6,
                     speed: 0.2,
@@ -241,42 +357,145 @@ class Enemies {
             }
         }
     }
+    get maxWidth(): number {
+        return Math.max(...Object.keys(this.types).map((i) => this.types[i].width))
+    }
+    get maxHeight(): number {
+        return Math.max(...Object.keys(this.types).map((i) => this.types[i].height))
+    }
 }
 /** Враг */
 class Enemy {
-    position: BodyPosition
+    timer: number
+    alpha: number = 1
+    
+    constructor(public matrix: [number, number], public game: CrealaxianGame, public skin: BodySkin, public size: BodyDimensions, 
+        public position: BodyPosition, public speedX: number, 
+        public defaultLength: number,
+        public canShoot: boolean = true,
+        public velocity: number = 2,
+        public speed: number = 0.005,
+        public angle: Function = () => Math.random() - 0.5
+        ) {
+        this.timer = game.getRandomInt(0, 48)
 
-    constructor() {
-        this.position = {
-            x: 0,
-            y: 0
+    }
+    /** Обновление врага */
+    update() {
+        // Обновление фрейма
+        this.timer++
+        if (this.timer % 24 === 0) this.nextFrame()
+        // Смена направления после удара о борт
+        let extermes = this.game.getExtremes()
+        if (extermes[0] < 0 || (extermes[1]+this.defaultLength) > this.game.params.width) {
+            this.speedX = -this.speedX
+            // Смещение по Y после удара о борт
+            if (this.game.bodies.player) {
+                this.position.y += this.game.enemies.maxHeight
+            }
+        }
+        this.position.x += this.speedX;
+        // Изменение координаты Y ()
+        // this.position.y += this.fx(this.position.x);
+        if (Math.random() < this.speed && !this.game.enemiesBelow(this) && this.canShoot) {
+            this.shoot(this.angle())
         }
     }
-    
+    /** Враг стреляет */
+    shoot(angle: number) {
+        if (this.game.bodies.player) {
+            this.game.resources.play('enemyShoot')
+            this.game.createBullet(this, false, 2, angle)
+        }
+    }
+    /** Переключение на следующий фрейм */
+    nextFrame(): void {
+        let curFrame = this.skin.frameNumber + 1
+        let allFramesLength = this.skin.frames.length
+        if (curFrame === allFramesLength) {
+            this.skin.frameNumber = 0
+        } else {
+            this.skin.frameNumber++
+        }
+    }
+    /** Попадание патроном */
+    hit() {
+        this.game.resources.play('hitEnemy')
+        this.game.bodies.explosions?.push(new Explosion(this.game, this, {
+            src: this.game.sprite!,
+            frameNumber: 0,
+            frames: [[0,61],[32,61],[64,61],[32,61],[0,61]]
+        }))
+    }
+    fx(x: number): number {
+        return (Math.sin(x/4))/4;
+    }
+}
+/** Взрывы */
+class Explosion {
+    position: BodyPosition
+    timer: number = 0
+    alpha: number = 1
+
+    constructor(public game: CrealaxianGame, public body: Player | Enemy | Bullet, public skin: BodySkin, public size: BodyDimensions = {width: 32, height: 32}) {
+        this.position = {
+            x: body.position.x + (body.size.width / 2) - (this.size.width / 2),
+            y: body.position.y + (body.size.height / 2) - (this.size.height / 2)
+        }
+    }
+
+    update(index: number) {
+        this.timer++
+        if (this.timer % 6 === 0) this.nextFrame(index)
+    }
+
+    nextFrame(index: number): void {
+        if ((this.skin.frameNumber + 1) === this.skin.frames.length) {
+            this.game.bodies.explosions?.splice(index, 1)
+        } else {
+            this.skin.frameNumber++
+        }
+    }
 }
 /** Пули */
 class Bullet {
     position: BodyPosition
+    alpha: number = 1
     
-    constructor(public game: CrealaxianGame, body: Player, public skin: BodySkin, 
+    constructor(public game: CrealaxianGame, public body: Player | Enemy, public skin: BodySkin, 
         public playerBullet: boolean = false,
         public size: BodyDimensions = {width: 4, height: 12}, 
-        public velocity: {x: number, y: number} = {x: 0, y: -6}) {
+        public velocity: {x: number, y: number} = {x: 0, y: -6},
+        public angle: number
+        ) {
         this.position = {
             x: body.position.x + (body.size.width / 2) - (this.size.width / 2),
-            y: body.position.y - (this.size.height / 2)
+            y: (this.playerBullet ? body.position.y - (this.size.height / 2) : body.position.y + (this.size.height))
         }
     }
 
     update() {
-        this.position.y += this.velocity.y;
-        this.position.x += this.velocity.x;
+        this.position.y += (this.playerBullet ? this.velocity.y : (this.body as Enemy).velocity)
+        this.position.x += this.angle
+    }
+
+    hit() {
+        this.game.bodies.explosions?.push(new Explosion(this.game, this, {
+            src: this.game.sprite!,
+            frameNumber: 0,
+            frames: [[0,61],[32,61],[64,61],[32,61],[0,61]]
+        }))
     }
 
 }
 /** Игрок */
 class Player {
+    lives: number = 3
     position: BodyPosition
+    timer: number = 0
+    canShoot: boolean = true
+    alpha: number = 1
+    deathcounter: number = 0
 
     constructor(public game: CrealaxianGame, public skin: BodySkin, public size: BodyDimensions = {width: 24, height: 32}) {
         this.position = {
@@ -284,8 +503,14 @@ class Player {
             y: game.params.height - this.size.height
         }
     }
-
     update(): void {
+        if (this.deathcounter > 0) {
+            this.alpha = Math.round(((Math.sin((Math.PI / 2)+(this.deathcounter/1.59151))/2)+0.5)*100)/100
+            this.deathcounter--
+        } else {
+            this.alpha = 1
+        }
+
         if(this.game.kbd.is('LEFT') && this.position.x > 0) {
             this.position.x -= 2;
             this.skin.frameNumber = 1;
@@ -295,15 +520,39 @@ class Player {
         } else {
             this.skin.frameNumber = 0;
         }
-
+        let shootTimer = 48
         if (this.game.kbd.is('SPACE')) {
-            this.shoot()
+            if (this.canShoot) this.shoot(0)
+        }
+        if (this.game.kbd.is('DEMON')) {
+            shootTimer = 8
+            if (this.canShoot) this.shoot(0)
+        }
+        if (this.timer % shootTimer === 0) this.canShoot = true
+        this.timer++
+    }
+    /** Попадание патроном */
+    hit() {
+        if (this.deathcounter === 0) {
+            this.deathcounter = 120
+            this.lives -= 1
+            this.game.resources.play('hitPlayer')
+            this.game.bodies.explosions?.push(new Explosion(this.game, this, {
+                src: this.game.sprite!,
+                frameNumber: 0,
+                frames: [[0,61],[32,61],[64,61],[32,61],[0,61]]
+            }))
+        }
+        if (this.lives === 0) {
+            this.game.over()
+            delete this.game.bodies.player
         }
     }
     /** Выстрел  */
-    shoot(): void {
+    shoot(angle: number): void {
+        this.canShoot = false
         this.game.resources.play('shoot')
-        this.game.createBullet(this, true)
+        this.game.createBullet(this, true, 0, angle)
     }
 }
 /** Обработка эвентов от клавиатуры */
@@ -317,7 +566,6 @@ class Keyboard {
         DEMON: 68,
         R: 82
     }
-
     constructor(public container: HTMLElement) {
         container.addEventListener('keydown', (e) => {
             if (Object.values(this.KEYS).includes(e.keyCode)) {
@@ -331,7 +579,6 @@ class Keyboard {
             }
 		});
     }
-
     is(key: AvailableKeyboardKeys): boolean {
         return (this.state[this.KEYS[key]] === true)
     }
@@ -340,44 +587,44 @@ class Keyboard {
 class Level {
 	list: number[][][] = [
 		[
-			[25, 0,0,0,0,1,1,0,1,1,0,0,1,1,1,0,0,1,0],
-			[25, 0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1],
-			[25, 0,0,0,1,0,0,0,1,1,0,0,1,1,0,0,1,0,1],
-			[25, 0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,1],
-			[25, 0,0,0,0,1,1,0,1,0,1,0,1,1,1,0,1,0,1],
-			[25, 0],
-			[25, 2,0,0,0,2,0,0,2,0,2,0,2,0,0,2,0,0,2,0,0,2],
-			[25, 2,0,0,2,0,2,0,0,2,0,0,0,0,2,0,2,0,2,2,0,2],
-			[25, 2,0,0,2,2,2,0,2,0,2,0,2,0,2,2,2,0,2,0,2,2],
-			[25, 2,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,0,2]
+			[0,0,0,4,0,0,4,0,0,0],
+			[0,0,3,3,3,3,3,3,0,0],
+			[0,2,2,2,2,2,2,2,2,0],
+			[1,2,1,1,1,1,1,1,2,1],
+			[1,1,1,1,1,1,1,1,1,1],
+			[1,1,0,0,0,0,0,0,1,1]
+        ],
+        [
+			[0,0,0,0,1,1,0,1,1,0,0,1,1,1,0,0,1,0],
+			[0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1],
+			[0,0,0,1,0,0,0,1,1,0,0,1,1,0,0,1,0,1],
+			[0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,1],
+			[0,0,0,0,1,1,0,1,0,1,0,1,1,1,0,1,0,1],
+			[0],
+			[2,0,0,0,2,0,0,2,0,2,0,2,0,0,2,0,0,2,0,0,2],
+			[2,0,0,2,0,2,0,0,2,0,0,0,0,2,0,2,0,2,2,0,2],
+			[2,0,0,2,2,2,0,2,0,2,0,2,0,2,2,2,0,2,0,2,2],
+			[2,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,0,2]
 		],
 		[
-			[33, 0,0,0,4,0,0,4,0,0,0],
-			[25, 0,0,3,3,3,3,3,3,0,0],
-			[25, 0,2,2,2,2,2,2,2,2,0],
-			[25, 1,2,1,1,1,1,1,1,2,1],
-			[25, 1,1,1,1,1,1,1,1,1,1],
-			[25, 1,1,0,0,0,0,0,0,1,1]
+			[4,4,4],
+			[4,4,4],
+			[2,2,2,2,2,2,2,2,2,3,3,3],
+			[0,0,2,2,2,2,2,2,2,3,3,3],
+			[1,1,1,1,1,1,1,1,1,3,3,3],
+			[1,1,1],
+			[1,1,1]
 		],
 		[
-			[25, 4,4,4],
-			[25, 4,4,4],
-			[25, 2,2,2,2,2,2,2,2,2,3,3,3],
-			[25, 0,0,2,2,2,2,2,2,2,3,3,3],
-			[25, 1,1,1,1,1,1,1,1,1,3,3,3],
-			[25, 1,1,1],
-			[25, 1,1,1]
+			[4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4],
+			[0,3,3,3,0,3,3,3,0,3,3,3,0,3,3,3],
+			[0,3,0,0,0,3,0,0,0,3,0,0,0,3,0,3],
+			[0,3,0,0,0,3,0,0,0,3,0,0,0,3,3,3],
+			[0,3,3,3,0,3,3,3,0,3,3,3,0,3,0,0],
+			[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
 		],
 		[
-			[40, 4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4],
-			[25, 0,3,3,3,0,3,3,3,0,3,3,3,0,3,3,3],
-			[25, 0,3,0,0,0,3,0,0,0,3,0,0,0,3,0,3],
-			[25, 0,3,0,0,0,3,0,0,0,3,0,0,0,3,3,3],
-			[40, 0,3,3,3,0,3,3,3,0,3,3,3,0,3,0,0],
-			[40, 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-		],
-		[
-			[26, 5]
+			[5]
 		],
     ]
     current: number[][]
