@@ -49,6 +49,7 @@ type EnemyType = {
 
 /** Игра */
 class CrealaxianGame {
+    scores: number = 0
     container: HTMLElement | null;
     screen: CanvasRenderingContext2D | null;
     resources: Resources;
@@ -57,6 +58,7 @@ class CrealaxianGame {
     sprite: HTMLImageElement | undefined
     level: Level = new Level()
     enemies: Enemies = new Enemies()
+    interfaces: Interfaces | undefined
 
     constructor(public id: string, public params: GameParams) {
         this.bodies = {
@@ -65,6 +67,8 @@ class CrealaxianGame {
             enemies: []
         }
         this.container = document.getElementById(id)
+        this.container!.style.width = (params.width).toFixed()+'px'
+        this.container!.style.height = (params.height).toFixed()+'px'
         let canvas = document.createElement('canvas')
             canvas.width = params.width
             canvas.height = params.height
@@ -86,7 +90,7 @@ class CrealaxianGame {
         // Загрузка ресурсов
         this.resources.load().then((data) => {
             if (data === true) {
-                this.start()
+                this.init()
             }
         })
     }
@@ -99,6 +103,7 @@ class CrealaxianGame {
                 frames: [[0,0],[24,0],[48,0]]
             }
         )
+        this.interfaces?.updateLives()
     }
     /** Создание врагов на основе матрицы уровней */
     createEnemies(level: number[][]) {
@@ -114,7 +119,7 @@ class CrealaxianGame {
         let maxEnemiesInRow = Math.max(...level.map(i => (i.length)))
         // Длина врагов 
         let enemiesLength = defaultLength * maxEnemiesInRow
-        let startY = 10
+        let startY = 50
         if (enemiesLength > this.params.width) {
             console.warn('Game width must be more than '+enemiesLength);
         }
@@ -166,19 +171,40 @@ class CrealaxianGame {
             frames: [[0,49],[4,49],[8,49]]
         }, playerBullet, undefined, undefined, angle))
     }
-    /** Запуск игры после загрузки ресурсов */
-    start(): void {
+    /** Инициализация игры */
+    init() {
+        // Инициализация элементов интерфейса
+        this.interfaces = new Interfaces(this)
         // Вспомогательная переменная СПРАЙТ
         this.sprite = (this.resources.getSrc('img', 'sprite') as HTMLImageElement)
+        // Создание контейнера для жизней и очков
+        this.interfaces.createLives()
+        // Создание врагов
+        this.createEnemies(this.level.list[6])
+        // Запуск цикла
+        this.loop()
+    }
+    /** Запуск игры после загрузки ресурсов */
+    start(): void {
+        this.interfaces!.createScores()
+        this.bodies.enemies = []
+        this.createEnemies(this.level.current)
         // Создание игрока
         this.createPlayer()
-        // Создание врагов
+        this.interfaces?.deleteStart()
+    }
+    /** Кнопка рестарт */
+    restart(): void {
+        this.scores = 0
+        this.level.index = 0
+        this.bodies.enemies = []
         this.createEnemies(this.level.current)
-        // Запуск цикла проверки
-        this.loop()
+        this.createPlayer()
+        this.interfaces?.deleteRestart()
     }
     /** Обновление элементов */
     update(): void {
+        // Обновление контейнера с жизнями
         this.colliding()
         this.bodies.player?.update()
         this.bodies.bullets?.forEach((bullet, index) => {
@@ -191,6 +217,11 @@ class CrealaxianGame {
         this.bodies.explosions?.forEach((explode, index) => {
             explode.update(index)
         })
+
+        if ((this.bodies.enemies?.length === 0) && (this.bodies.bullets?.filter(i => (i.playerBullet === false)).length === 0) && this.bodies.player) {
+            this.bodies.player.win()
+            this.createEnemies(this.level.nextLevel())
+        }
     }
     /** Обработка коллизий */
     colliding(): void {
@@ -206,6 +237,7 @@ class CrealaxianGame {
 					enemy.position.y + enemy.size.height > bullet.position.y) {
                     enemy.hit()
                     enemyAlive = false
+                    this.interfaces?.updateScores(100)
                     return false
                 }
                 // Если пуля врага врезалась в игрока
@@ -217,6 +249,7 @@ class CrealaxianGame {
                         player.position.y < bullet.position.y + bullet.size.height && 
                         player.position.y + player.size.height > bullet.position.y) {
                         player.hit()
+                        this.interfaces?.updateScores(-1000)
                         return false
                     }
                 }
@@ -237,6 +270,7 @@ class CrealaxianGame {
 					b1.position.y + b1.size.height > b2.position.y)) {
                     b1.hit()
                     bulletAlive = false
+                    this.interfaces?.updateScores(200)
                 }
             })
             return bulletAlive
@@ -288,10 +322,81 @@ class CrealaxianGame {
     getRandomInt = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min;
     /** Конец */
     over() {
+        this.interfaces?.createGameOver()
+        this.interfaces?.createRestart()
         this.resources.play('gameOver')
     }
 }
+/** Интерфейс */
+class Interfaces {
+    startButton: HTMLElement | undefined 
+    restartButton: HTMLElement | undefined 
+    gameover: HTMLElement | undefined 
+    livesContainer: HTMLElement | undefined 
+    scoresContainer: HTMLElement | undefined 
 
+    constructor(public game: CrealaxianGame) {
+        this.createStart('PLAY')
+    }
+
+    /** Создание кнопки старт */
+    createStart(text: string) {
+        this.startButton = document.createElement('start_button');
+        this.startButton.innerHTML = text
+        this.startButton.onclick = () => {
+            this.game.start()
+        }
+        this.game.container?.appendChild(this.startButton);
+    }
+    /** Удаление кнопки старт */
+    deleteStart = () => this.startButton?.parentNode?.removeChild(this.startButton)
+    /** Создание надписи GameOver */
+    createGameOver() {
+        this.gameover = document.createElement('gameover');
+        this.gameover.innerHTML = 'GAME OVER'
+        this.game.container?.appendChild(this.gameover);
+    }
+    /** Удаление надписи GameOver */
+    deleteGameOver = () => this.gameover?.parentNode?.removeChild(this.gameover)
+    /** Создание кнопки рестарт */
+    createRestart() {
+        this.restartButton = document.createElement('restart_button');
+        this.restartButton.innerHTML = 'RESTART'
+        this.restartButton.onclick = () => {
+            this.deleteGameOver()
+            this.game.restart()
+        }
+        this.game.container?.appendChild(this.restartButton);
+    }
+    /** Удаление кнопки рестарт */
+    deleteRestart = () => this.restartButton?.parentNode?.removeChild(this.restartButton)
+    /** Создание контейнера с жизнями */
+    createLives() {
+        this.livesContainer = document.createElement('lives');
+        this.game.container?.appendChild(this.livesContainer);
+    }
+    /** Обновление жизней */
+    updateLives() {
+        if (this.game.bodies.player) {
+            this.livesContainer!.innerHTML = ''
+            for (let i = 0; i < this.game.bodies.player.lives; i++) {
+                this.livesContainer?.appendChild(document.createElement('span'))
+            }
+        } else {
+            this.livesContainer!.innerHTML = ''
+        }
+    }
+    /** Создани конейнера с очками */
+    createScores() {
+        this.scoresContainer = document.createElement('score');
+        this.game.container?.appendChild(this.scoresContainer);   
+    }
+    /** Обновление очков */
+    updateScores(n: number) {
+        this.game.scores += n
+        this.scoresContainer!.innerHTML = this.game.scores.toFixed()
+    }
+}
 /** Враги */
 class Enemies {
     types: {[key: string]: EnemyType}
@@ -390,9 +495,9 @@ class Enemy {
         if (extermes[0] < 0 || (extermes[1]+this.defaultLength) > this.game.params.width) {
             this.speedX = -this.speedX
             // Смещение по Y после удара о борт
-            if (this.game.bodies.player) {
-                this.position.y += this.game.enemies.maxHeight
-            }
+            // if (this.game.bodies.player) {
+                // this.position.y += this.game.enemies.maxHeight
+            // }
         }
         this.position.x += this.speedX;
         // Изменение координаты Y ()
@@ -536,6 +641,7 @@ class Player {
         if (this.deathcounter === 0) {
             this.deathcounter = 120
             this.lives -= 1
+            this.game.interfaces?.updateLives()
             this.game.resources.play('hitPlayer')
             this.game.bodies.explosions?.push(new Explosion(this.game, this, {
                 src: this.game.sprite!,
@@ -546,6 +652,7 @@ class Player {
         if (this.lives === 0) {
             this.game.over()
             delete this.game.bodies.player
+            this.game.interfaces?.updateLives()
         }
     }
     /** Выстрел  */
@@ -553,6 +660,11 @@ class Player {
         this.canShoot = false
         this.game.resources.play('shoot')
         this.game.createBullet(this, true, 0, angle)
+    }
+    /** Победа */
+    win() {
+        this.lives += 1
+        this.game.interfaces?.updateLives()
     }
 }
 /** Обработка эвентов от клавиатуры */
@@ -586,8 +698,8 @@ class Keyboard {
 /** Уровни */
 class Level {
 	list: number[][][] = [
-		[
-			[0,0,0,4,0,0,4,0,0,0],
+        [
+			[0,0,0,3,3,3,3,0,0,0],
 			[0,0,3,3,3,3,3,3,0,0],
 			[0,2,2,2,2,2,2,2,2,0],
 			[1,2,1,1,1,1,1,1,2,1],
@@ -595,17 +707,15 @@ class Level {
 			[1,1,0,0,0,0,0,0,1,1]
         ],
         [
-			[0,0,0,0,1,1,0,1,1,0,0,1,1,1,0,0,1,0],
-			[0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1],
-			[0,0,0,1,0,0,0,1,1,0,0,1,1,0,0,1,0,1],
-			[0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,1],
-			[0,0,0,0,1,1,0,1,0,1,0,1,1,1,0,1,0,1],
-			[0],
-			[2,0,0,0,2,0,0,2,0,2,0,2,0,0,2,0,0,2,0,0,2],
-			[2,0,0,2,0,2,0,0,2,0,0,0,0,2,0,2,0,2,2,0,2],
-			[2,0,0,2,2,2,0,2,0,2,0,2,0,2,2,2,0,2,0,2,2],
-			[2,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,0,2]
-		],
+			[0,3,0,3,3,3,3,0,3,0],
+            [0,0,3,3,3,3,3,3,0,0],
+            [0,3,0,3,3,3,3,0,3,0],
+			[0,0,3,3,3,3,3,3,0,0]
+        ],
+        [
+			[0,4,0,4,0,4,0,4,0,4],
+			[4,0,4,0,4,0,4,0,4]
+        ],
 		[
 			[4,4,4],
 			[4,4,4],
@@ -625,7 +735,19 @@ class Level {
 		],
 		[
 			[5]
-		],
+        ],
+        [
+			[0,0,0,0,1,1,0,1,1,0,0,1,1,1,0,0,1,0],
+			[0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,1],
+			[0,0,0,1,0,0,0,1,1,0,0,1,1,0,0,1,0,1],
+			[0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,1],
+			[0,0,0,0,1,1,0,1,0,1,0,1,1,1,0,1,0,1],
+			[0],
+			[2,0,0,0,2,0,0,2,0,2,0,2,0,0,2,0,0,2,0,0,2],
+			[2,0,0,2,0,2,0,0,2,0,0,0,0,2,0,2,0,2,2,0,2],
+			[2,0,0,2,2,2,0,2,0,2,0,2,0,2,2,2,0,2,0,2,2],
+			[2,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,2,0,0,2]
+        ]
     ]
     current: number[][]
     index: number = 0
@@ -642,6 +764,16 @@ class Level {
             this.index++
         }
         this.current = this.list[this.index]
+    }
+
+    /** Следующий уровень */
+    nextLevel(): number[][] {
+        if ((this.index + 1) === this.list.length) {
+            this.index = 0
+        } else {
+            this.index++
+        }
+        return this.list[this.index]
     }
 }
 /** Работа с ресурсами */
