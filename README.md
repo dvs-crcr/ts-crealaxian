@@ -1,6 +1,6 @@
 # Crealaxian 🚀🛸🛸🛸
 
-Simple Typescript Galaxian-like game
+Simple Typescript && Canvas Galaxian-like game...
 
 Use `SPACE` and `ARROWS` to play
 
